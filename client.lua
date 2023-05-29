@@ -52,8 +52,8 @@ local function loadSettings(settings)
         if k == 'isToggleMapShapeChecked' then
             Menu.isToggleMapShapeChecked = v
             SendNUIMessage({ test = true, event = k, toggle = v})
-        elseif k == 'isCineamticModeChecked' then
-            Menu.isCineamticModeChecked = v
+        elseif k == 'isCinematicModeChecked' then
+            Menu.isCinematicModeChecked = v
             CinematicShow(v)
             SendNUIMessage({ test = true, event = k, toggle = v})
         elseif k == 'isChangeFPSChecked' then
@@ -95,6 +95,8 @@ RegisterNetEvent("QBCore:Client:OnPlayerLoaded", function()
     local hudSettings = GetResourceKvpString('hudSettings')
     if hudSettings then loadSettings(json.decode(hudSettings)) end
     PlayerData = QBCore.Functions.GetPlayerData()
+    Wait(3000)
+    SetEntityHealth(PlayerPedId(), 200)
 end)
 
 RegisterNetEvent("QBCore:Client:OnPlayerUnload", function()
@@ -134,7 +136,7 @@ RegisterNUICallback('closeMenu', function(_, cb)
     cb("ok")
 end)
 
-RegisterKeyMapping('menu', 'Open Menu', 'keyboard', Config.OpenMenu)
+RegisterKeyMapping('menu', 'Open Menu', 'keyboard', config.OpenMenu)
 
 -- Reset hud
 local function restartHud()
@@ -158,10 +160,9 @@ RegisterNUICallback('restartHud', function(_, cb)
     cb("ok")
 end)
 
-RegisterCommand('resethud', function(_, cb)
+RegisterCommand('resethud', function()
     Wait(50)
     restartHud()
-    cb("ok")
 end)
 
 RegisterNUICallback('resetStorage', function(_, cb)
@@ -528,16 +529,16 @@ end)
 
 RegisterNUICallback('cinematicMode', function(_, cb)
     Wait(50)
-    if Menu.isCineamticModeChecked then
+    if Menu.isCinematicModeChecked then
         CinematicShow(false)
-        Menu.isCineamticModeChecked = false
+        Menu.isCinematicModeChecked = false
         if Menu.isCinematicNotifChecked then
             QBCore.Functions.Notify(Lang:t("notify.cinematic_off"), 'error')
         end
         DisplayRadar(1)
     else
         CinematicShow(true)
-        Menu.isCineamticModeChecked = true
+        Menu.isCinematicModeChecked = true
         if Menu.isCinematicNotifChecked then
             QBCore.Functions.Notify(Lang:t("notify.cinematic_on"))
         end
@@ -584,17 +585,6 @@ end)
 RegisterNetEvent("qb-admin:client:ToggleDevmode", function()
     dev = not dev
 end)
-
-local function IsWhitelistedWeaponArmed(weapon)
-    if weapon then
-        for _, v in pairs(config.WhitelistedWeaponArmed) do
-            if weapon == v then
-                return true
-            end
-        end
-    end
-    return false
-end
 
 local prevPlayerStats = { nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil }
 
@@ -698,7 +688,7 @@ CreateThread(function()
             local playerId = PlayerId()
             local weapon = GetSelectedPedWeapon(player)
             -- Player hud
-            if not IsWhitelistedWeaponArmed(weapon) then
+            if not config.WhitelistedWeaponArmed[weapon] then
                 if weapon ~= `WEAPON_UNARMED` then
                     armed = true
                 else
@@ -755,7 +745,7 @@ CreateThread(function()
                 hp,
                 math.ceil(GetEntitySpeed(vehicle) * speedMultiplier),
                 -1,
-                Menu.isCineamticModeChecked,
+                Menu.isCinematicModeChecked,
                 dev,
                 radioActive,
             })
@@ -799,7 +789,7 @@ CreateThread(function()
                     hp,
                     math.ceil(GetEntitySpeed(vehicle) * speedMultiplier),
                     (GetVehicleEngineHealth(vehicle) / 10),
-                    Menu.isCineamticModeChecked,
+                    Menu.isCinematicModeChecked,
                     dev,
                     radioActive,
                 })
@@ -906,61 +896,52 @@ end)
 
 -- Stress Gain
 
-CreateThread(function() -- Speeding
-    while true do
-        if LocalPlayer.state.isLoggedIn then
-            local ped = PlayerPedId()
-            if IsPedInAnyVehicle(ped, false) then
-                local veh = GetVehiclePedIsIn(ped, false)
-                local vehClass = GetVehicleClass(veh)
-                local speed = GetEntitySpeed(veh) * speedMultiplier
-
-                if vehClass ~= 13 and vehClass ~= 14 and vehClass ~= 15 and vehClass ~= 16 and vehClass ~= 21 then
-                    local stressSpeed
-                    if vehClass == 8 then
-                        stressSpeed = config.MinimumSpeed
-                    else
-                        stressSpeed = seatbeltOn and config.MinimumSpeed or config.MinimumSpeedUnbuckled
-                    end
-                    if speed >= stressSpeed then
-                        TriggerServerEvent('hud:server:GainStress', math.random(1, 3))
+if not config.DisableStress then
+    CreateThread(function() -- Speeding
+        while true do
+            if LocalPlayer.state.isLoggedIn then
+                local ped = PlayerPedId()
+                if IsPedInAnyVehicle(ped, false) then
+                    local veh = GetVehiclePedIsIn(ped, false)
+                    local vehClass = GetVehicleClass(veh)
+                    local speed = GetEntitySpeed(veh) * speedMultiplier
+                    local vehHash = GetEntityModel(veh)
+                    if config.VehClassStress[tostring(vehClass)] and not config.WhitelistedVehicles[vehHash] then
+                        local stressSpeed
+                        if vehClass == 8 then -- Motorcycle exception for seatbelt
+                            stressSpeed = config.MinimumSpeed
+                        else
+                            stressSpeed = seatbeltOn and config.MinimumSpeed or config.MinimumSpeedUnbuckled
+                        end
+                        if speed >= stressSpeed then
+                            TriggerServerEvent('hud:server:GainStress', math.random(1, 3))
+                        end
                     end
                 end
             end
+            Wait(10000)
         end
-        Wait(10000)
-    end
-end)
+    end)
 
-local function IsWhitelistedWeaponStress(weapon)
-    if weapon then
-        for _, v in pairs(config.WhitelistedWeaponStress) do
-            if weapon == v then
-                return true
+    CreateThread(function() -- Shooting
+        while true do
+            if LocalPlayer.state.isLoggedIn then
+                local ped = PlayerPedId()
+                local weapon = GetSelectedPedWeapon(ped)
+                if weapon ~= `WEAPON_UNARMED` then
+                    if IsPedShooting(ped) and not config.WhitelistedWeaponStress[weapon] then
+                        if math.random() < config.StressChance then
+                            TriggerServerEvent('hud:server:GainStress', math.random(1, 3))
+                        end
+                    end
+                else
+                    Wait(1000)
+                end
             end
+            Wait(0)
         end
-    end
-    return false
+    end)
 end
-
-CreateThread(function() -- Shooting
-    while true do
-        if LocalPlayer.state.isLoggedIn then
-            local ped = PlayerPedId()
-            local weapon = GetSelectedPedWeapon(ped)
-            if weapon ~= `WEAPON_UNARMED` then
-                if IsPedShooting(ped) and not IsWhitelistedWeaponStress(weapon) then
-                    if math.random() < config.StressChance then
-                        TriggerServerEvent('hud:server:GainStress', math.random(1, 3))
-                    end
-                end
-            else
-                Wait(1000)
-            end
-        end
-        Wait(8)
-    end
-end)
 
 -- Stress Screen Effects
 
